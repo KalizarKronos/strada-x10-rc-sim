@@ -1,0 +1,1220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>STRADA-X10 — 1/10 3D-Printed Supercar RC Physics Simulator</title>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --panel: rgba(15, 20, 29, 0.84);
+    --border: rgba(255, 255, 255, 0.12);
+    --accent: #ff5a1f;
+    --cyan: #38bdf8;
+    --green: #34d399;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; }
+  body { background: var(--bg); color: var(--text); overflow: hidden; select-user: none; }
+  #canvas-wrap { position: fixed; inset: 0; }
+  .hud-card {
+    position: fixed; background: var(--panel); backdrop-filter: blur(10px);
+    border: 1px solid var(--border); border-radius: 12px; padding: 12px 15px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.45); z-index: 10;
+  }
+  #top-left { top: 14px; left: 14px; max-width: 340px; }
+  #top-left h1 { font-size: 16px; font-weight: 800; letter-spacing: 0.5px; color: #fff; display: flex; align-items: center; gap: 8px; }
+  .badge { background: var(--accent); color: #fff; font-size: 10px; padding: 2px 7px; border-radius: 99px; font-weight: 700; }
+  #top-left p { font-size: 11.5px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+  .btn-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+  button {
+    background: rgba(255,255,255,0.08); border: 1px solid var(--border); color: var(--text);
+    padding: 5px 9px; border-radius: 7px; font-size: 11.5px; font-weight: 600; cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  button:hover { background: rgba(255,255,255,0.16); }
+  button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .slider-row { margin-top: 8px; font-size: 11.5px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  input[type=range] { accent-color: var(--accent); flex: 1; }
+
+  #top-right { top: 14px; right: 14px; width: 255px; }
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat { background: rgba(255,255,255,0.04); padding: 7px 9px; border-radius: 8px; }
+  .stat .lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+  .stat .val { font-size: 15px; font-weight: 700; color: #fff; margin-top: 1px; font-variant-numeric: tabular-nums; }
+  .stat .sub { font-size: 10px; color: var(--cyan); }
+
+  #bottom-right { bottom: 14px; right: 14px; width: 255px; display: flex; flex-direction: column; gap: 8px; }
+  .speedo { display: flex; align-items: baseline; justify-content: space-between; }
+  .speed-num { font-size: 38px; font-weight: 800; line-height: 1; color: #fff; font-variant-numeric: tabular-nums; }
+  .speed-unit { font-size: 12px; color: var(--muted); margin-left: 4px; }
+  .bar-wrap { height: 7px; background: rgba(255,255,255,0.1); border-radius: 99px; overflow: hidden; margin-top: 4px; }
+  .bar-fill { height: 100%; background: linear-gradient(90deg, var(--green), var(--accent)); width: 0%; transition: width 0.05s linear; }
+  .sus-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 4px; }
+  .sus-col { text-align: center; font-size: 10px; color: var(--muted); }
+  .sus-bar-bg { height: 34px; width: 10px; margin: 3px auto 0; background: rgba(255,255,255,0.1); border-radius: 4px; position: relative; overflow: hidden; }
+  .sus-bar-fg { position: absolute; bottom: 0; left: 0; right: 0; background: var(--cyan); height: 50%; }
+
+  #bottom-left { bottom: 14px; left: 14px; font-size: 11px; color: var(--muted); line-height: 1.5; max-width: 340px; }
+  #bottom-left b { color: #fff; }
+  #g-meter-wrap { display: flex; align-items: center; gap: 10px; }
+  #g-canvas { background: rgba(0,0,0,0.35); border: 1px solid var(--border); border-radius: 50%; }
+  #banner-msg {
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    background: rgba(15, 20, 29, 0.9); border: 1px solid var(--accent);
+    padding: 7px 16px; border-radius: 99px; font-size: 12px; font-weight: 700;
+    color: #fff; z-index: 15; display: none;
+  }
+</style>
+</head>
+<body>
+<div id="canvas-wrap"></div>
+<div id="banner-msg"></div>
+
+<div id="top-left" class="hud-card">
+  <h1>STRADA-X10 <span class="badge">3S 3500KV RWD</span></h1>
+  <p id="car-spec-line">CAD+FEA Physics • 14-DOF • Exact Pacejka &amp; Torsion</p>
+  <div class="btn-row">
+    <button id="btn-drag" onclick="setScenario('drag')">0–30m Drag</button>
+    <button id="btn-skid" onclick="setScenario('skidpad')">15m Skidpad</button>
+    <button id="btn-circuit" class="active" onclick="setScenario('circuit')">Handling Track</button>
+    <button id="btn-xray" onclick="toggleXray()">X-Ray Shell (X)</button>
+    <button id="btn-cam" onclick="cycleCamera()">Cam (V)</button>
+    <button onclick="resetCar()">Reset (R)</button>
+  </div>
+  <div class="slider-row">
+    <span>P6FG Gyro Gain: <b id="gyro-lbl">25%</b></span>
+    <input id="gyro-slider" type="range" min="0" max="50" value="25" />
+  </div>
+</div>
+
+<div id="top-right" class="hud-card">
+  <div class="stat-grid">
+    <div class="stat">
+      <div class="lbl">0–30m Time</div>
+      <div class="val" id="val-t30">--.- s</div>
+      <div class="sub" id="val-d30">Dist: 0.0 m</div>
+    </div>
+    <div class="stat">
+      <div class="lbl">Top Speed</div>
+      <div class="val" id="val-vmax">0.0 km/h</div>
+      <div class="sub" id="val-vmax-mph">0.0 mph</div>
+    </div>
+    <div class="stat">
+      <div class="lbl">Peak Lat G</div>
+      <div class="val" id="val-latg">0.00 G</div>
+      <div class="sub" id="val-slip">Slip β: 0.0°</div>
+    </div>
+    <div class="stat">
+      <div class="lbl">Motor / 3S</div>
+      <div class="val" id="val-amps">0.0 A</div>
+      <div class="sub" id="val-volts">11.8 V</div>
+    </div>
+  </div>
+  <div id="g-meter-wrap" style="margin-top: 8px;">
+    <canvas id="g-canvas" width="76" height="76"></canvas>
+    <div style="font-size: 11px; line-height: 1.45;">
+      <div>Ax: <b id="val-ax">0.00 G</b></div>
+      <div>Ay: <b id="val-ay">0.00 G</b></div>
+      <div>Roll: <b id="val-roll">0.0°</b></div>
+      <div>Twist: <b id="val-twist">0.00°</b></div>
+    </div>
+  </div>
+</div>
+
+<div id="bottom-right" class="hud-card">
+  <div class="speedo">
+    <div><span class="speed-num" id="val-speed">0</span><span class="speed-unit">km/h</span></div>
+    <div style="text-align:right; font-size: 11px; color: var(--muted);">
+      <div id="val-mph">0 mph</div>
+      <div id="val-steer">Steer: 0°</div>
+    </div>
+  </div>
+  <div>
+    <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--muted);">
+      <span>Throttle / Brake</span><span id="val-thr-pct">0%</span>
+    </div>
+    <div class="bar-wrap"><div class="bar-fill" id="bar-thr"></div></div>
+  </div>
+  <div>
+    <div style="font-size:10px; color:var(--muted);">Suspension Travel (FL / FR / RL / RR)</div>
+    <div class="sus-grid">
+      <div class="sus-col">FL<div class="sus-bar-bg"><div class="sus-bar-fg" id="sus-0"></div></div></div>
+      <div class="sus-col">FR<div class="sus-bar-bg"><div class="sus-bar-fg" id="sus-1"></div></div></div>
+      <div class="sus-col">RL<div class="sus-bar-bg"><div class="sus-bar-fg" id="sus-2"></div></div></div>
+      <div class="sus-col">RR<div class="sus-bar-bg"><div class="sus-bar-fg" id="sus-3"></div></div></div>
+    </div>
+  </div>
+</div>
+
+<div id="bottom-left" class="hud-card">
+  <b>Controls:</b> <b>W/S</b> or <b>↑/↓</b> Throttle/Brake/Rev • <b>A/D</b> or <b>←/→</b> Steer • <b>Space</b> Handbrake • <b>X</b> X-Ray • <b>V</b> Camera • <b>R</b> Reset • <b>Gamepad</b> Plug &amp; Play<br/>
+  <span id="gp-status" style="color:var(--cyan)">Gamepad: Not connected (Keyboard active)</span>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+// === EXACT INJECTED CAD, FEA & VEHICLE PARAMETERS ===
+const PARAMS = {
+  "iteration_name": "iter4_final",
+  "wheelbase": 258.0,
+  "track_front": 192.0,
+  "track_rear": 200.0,
+  "ride_height": 14.0,
+  "rim_od": 46.0,
+  "rim_barrel_id": 38.0,
+  "tyre_od_front": 74.0,
+  "tyre_width_front": 30.0,
+  "tyre_od_rear": 76.0,
+  "tyre_width_rear": 40.0,
+  "tyre_tread_depth": 1.3,
+  "tyre_belt_thickness": 1.4,
+  "tyre_spoke_count": 12,
+  "tyre_spoke_thickness": 1.05,
+  "chassis_floor_t": 3.2,
+  "chassis_side_wall_h": 24.0,
+  "chassis_side_wall_t": 3.0,
+  "chassis_width": 116.0,
+  "use_upper_torsion_spine": true,
+  "chassis_shear_webs": true,
+  "lightweight_truss_chassis": true,
+  "upper_spine_t": 3.2,
+  "upper_spine_h": 38.0,
+  "body_wall_mm": 1.6,
+  "arm_inner_y_front_lower": 24.0,
+  "arm_inner_y_front_upper": 27.0,
+  "arm_inner_y_rear_lower": 24.0,
+  "arm_inner_y_rear_upper": 28.0,
+  "arm_inner_z_front_lower": 24.0,
+  "arm_inner_z_front_upper": 47.0,
+  "arm_inner_z_rear_lower": 24.5,
+  "arm_inner_z_rear_upper": 48.0,
+  "arm_outer_z_front_lower": 22.0,
+  "arm_outer_z_front_upper": 49.0,
+  "arm_outer_z_rear_lower": 22.5,
+  "arm_outer_z_rear_upper": 50.0,
+  "arm_thickness": 7.5,
+  "arm_beam_width": 9.0,
+  "camber_front_deg": -1.5,
+  "camber_rear_deg": -1.8,
+  "toe_front_deg": -0.4,
+  "toe_rear_deg": 2.0,
+  "caster_deg": 7.0,
+  "kingpin_incl_deg": 7.5,
+  "ackermann_pct": 65.0,
+  "anti_squat_pct": 18.0,
+  "anti_dive_pct": 15.0,
+  "max_steer_deg": 36.0,
+  "spring_od": 7.0,
+  "spring_wire_d": 0.8,
+  "spring_free_len": 35.0,
+  "spring_active_coils": 12.5,
+  "shock_motion_ratio_front": 0.68,
+  "shock_motion_ratio_rear": 0.72,
+  "shock_angle_deg": 16.0,
+  "bump_stop_len": 5.0,
+  "bump_stop_k": 8.0,
+  "shock_damping_ratio": 0.3,
+  "two_stage_gearbox": true,
+  "pinion_teeth": 13,
+  "stage1_spur_teeth": 36,
+  "stage2_pinion_teeth": 16,
+  "stage2_ring_teeth": 44,
+  "gear_face_width_s1": 7.5,
+  "gear_face_width_s2": 14.0,
+  "has_differential": true,
+  "motor_kv": 3500.0,
+  "motor_r_ohm": 0.028,
+  "motor_max_amps": 60.0,
+  "battery_cells": 3,
+  "battery_v_nom": 11.1,
+  "battery_v_full": 12.4,
+  "battery_r_int": 0.018,
+  "motor_x": 56.8,
+  "motor_y": 49.0,
+  "motor_z": 36.0,
+  "battery_x": 112.0,
+  "battery_y": -36.0,
+  "battery_z": 30.0,
+  "esc_x": 165.0,
+  "esc_y": -42.0,
+  "esc_z": 34.0,
+  "servo_x": 205.0,
+  "servo_y": -6.0,
+  "servo_z": 36.0,
+  "rx_x": 175.0,
+  "rx_y": -32.0,
+  "rx_z": 46.0,
+  "bearing_608_od": 22.15,
+  "bearing_608_id": 7.95,
+  "bearing_608_w": 7.0,
+  "dowel_3_slip": 3.12,
+  "dowel_4_slip": 4.12,
+  "dowel_4_press": 3.96,
+  "insert_m3_hole": 4.25,
+  "insert_m4_hole": 5.45,
+  "screw_m3_clear": 3.3,
+  "screw_m4_clear": 4.3,
+  "nfc_pocket_d": 26.5,
+  "petg_density_g_cm3": 1.2,
+  "tpu_density_g_cm3": 1.15,
+  "petg_E_mpa": 2100.0,
+  "petg_nu": 0.35,
+  "petg_yield_xy_mpa": 45.0,
+  "petg_yield_z_mpa": 28.0,
+  "has_aero_kit": true,
+  "frontal_area_m2": 0.0175,
+  "cd": 0.34,
+  "cl_front": 0.18,
+  "cl_rear": 0.42,
+  "computed_gear_ratio": 7.615384615384615,
+  "computed_spring_k_n_mm": 1.3628814071363835,
+  "computed_layshaft_x_mm": 37.446628686705566,
+  "computed_motor_x_mm": 56.893503686705564
+};
+const CAD_METRICS = {
+  "iteration_name": "iter4_final",
+  "total_mass_kg": 1.8633729912458312,
+  "total_mass_g": 1863.3729912458311,
+  "printed_petg_g": 998.4204830833029,
+  "printed_tpu95a_g": 211.75250816252853,
+  "hardware_electronics_g": 653.1999999999997,
+  "unsprung_front_per_corner_kg": 0.10244813557478179,
+  "unsprung_rear_per_corner_kg": 0.12736583008063665,
+  "sprung_mass_kg": 1.4037450599349943,
+  "com_mm": [
+    111.14369256294876,
+    0.5646194703799169,
+    39.52242555211801
+  ],
+  "front_weight_pct": 43.07895060579409,
+  "rear_weight_pct": 56.92104939420591,
+  "Ixx_kgm2": 0.007373229660199902,
+  "Iyy_kgm2": 0.022078591759358536,
+  "Izz_kgm2": 0.027727131603534818,
+  "wheel_inertia_front_kgm2": 4.8423551950225495e-05,
+  "wheel_inertia_rear_kgm2": 6.788333006460328e-05,
+  "wheelbase_m": 0.258,
+  "track_front_m": 0.192,
+  "track_rear_m": 0.2,
+  "tyre_radius_front_m": 0.037,
+  "tyre_radius_rear_m": 0.038,
+  "tyre_width_front_m": 0.03,
+  "tyre_width_rear_m": 0.04,
+  "rc_front_m": 0.008358097413984075,
+  "rc_rear_m": 0.00857584398058464,
+  "spring_rate_n_mm": 1.3628814071363835,
+  "wheel_rate_front_n_m": 582.3165941091329,
+  "wheel_rate_rear_n_m": 652.8393650220036,
+  "gear_ratio": 7.615384615384615
+};
+const FEA_METRICS = {
+  "chassis_torsion_nm_per_deg": 8.766956898057732,
+  "chassis_peak_vm_mpa": 0.7547412714185219,
+  "chassis_fos_xy": 59.62308105322418,
+  "chassis_fos_z": 37.09880598867282,
+  "arm_fl_3g_vm_mpa": 5.081645122152326,
+  "arm_fl_3g_disp_mm": 0.7167535328336319,
+  "arm_fl_fos": 8.855399957748386,
+  "rear_hub_3g_vm_mpa": 0.5586153318576349,
+  "rear_hub_fos": 50.12393753477554,
+  "gear_s2_pinion_vm_mpa": 19.83250590597473,
+  "gear_s2_pinion_fos": 2.2690022235890686,
+  "tyre_radial_k_n_mm": 62.795655038854136,
+  "tyre_radial_k_n_m": 62795.65503885414,
+  "tyre_contact_vm_mpa": 0.4600061440352221,
+  "mesh_stats": {
+    "chassis_tets": 63034,
+    "arm_tets": 5262,
+    "hub_tets": 5438,
+    "pinion_tets": 25868,
+    "tyre_tets": 28361
+  }
+};
+
+document.getElementById('car-spec-line').textContent =
+  `${CAD_METRICS.total_mass_kg.toFixed(2)}kg (${CAD_METRICS.front_weight_pct.toFixed(1)}/${CAD_METRICS.rear_weight_pct.toFixed(1)} F/R) • K_tor=${FEA_METRICS.chassis_torsion_nm_per_deg.toFixed(2)} Nm/° • G=${CAD_METRICS.gear_ratio.toFixed(2)}:1`;
+
+// === EXACT 14-DOF PHYSICS ENGINE (1:1 PORT OF sim/vehicle_physics.py) ===
+class RCPhysicsSim {
+  constructor(p, cad, fea) {
+    this.p = p;
+    this.cad = cad;
+    this.fea = fea;
+    this.g = 9.81;
+    this.m = cad.total_mass_kg;
+    this.ms = cad.sprung_mass_kg;
+    this.mu_f = cad.unsprung_front_per_corner_kg;
+    this.mu_r = cad.unsprung_rear_per_corner_kg;
+    this.L = cad.wheelbase_m;
+    this.tf = cad.track_front_m;
+    this.tr = cad.track_rear_m;
+    this.rf = cad.tyre_radius_front_m;
+    this.rr = cad.tyre_radius_rear_m;
+
+    this.b = cad.com_mm[0] * 1e-3;
+    this.a = this.L - this.b;
+    this.h_cg = cad.com_mm[2] * 1e-3;
+
+    this.Ixx = cad.Ixx_kgm2;
+    this.Iyy = cad.Iyy_kgm2;
+    this.Izz = cad.Izz_kgm2;
+    this.Iwf = cad.wheel_inertia_front_kgm2;
+    this.Iwr = cad.wheel_inertia_rear_kgm2;
+
+    this.rc_f = cad.rc_front_m;
+    this.rc_r = cad.rc_rear_m;
+
+    this.kw_f = cad.wheel_rate_front_n_m;
+    this.kw_r = cad.wheel_rate_rear_n_m;
+    this.k_tyre = fea.tyre_radial_k_n_m;
+    const m_sf = 0.5 * this.ms * (this.b / this.L);
+    const m_sr = 0.5 * this.ms * (this.a / this.L);
+    const zeta = p.shock_damping_ratio;
+    this.cw_f = 2.0 * zeta * Math.sqrt(this.kw_f * Math.max(0.05, m_sf));
+    this.cw_r = 2.0 * zeta * Math.sqrt(this.kw_r * Math.max(0.05, m_sr));
+    this.max_bump = 0.015;
+    this.max_droop = -0.012;
+    this.bump_stop_k = p.bump_stop_k * 1000.0;
+
+    this.k_torsion_nm_rad = fea.chassis_torsion_nm_per_deg * (180.0 / Math.PI);
+
+    this.G = cad.gear_ratio;
+    this.eta_drive = p.two_stage_gearbox ? 0.94 : 0.92;
+    this.ke = 60.0 / (2.0 * Math.PI * p.motor_kv);
+    this.kt = this.ke;
+    this.rm = p.motor_r_ohm;
+    this.r_bat = p.battery_r_int;
+    this.v_oc = 11.8;
+    this.i_max = p.motor_max_amps;
+
+    this.camber_f = p.camber_front_deg * Math.PI / 180.0;
+    this.camber_r = p.camber_rear_deg * Math.PI / 180.0;
+    this.toe_f = p.toe_front_deg * Math.PI / 180.0;
+    this.toe_r = p.toe_rear_deg * Math.PI / 180.0;
+    this.ackermann = p.ackermann_pct / 100.0;
+    this.max_steer = p.max_steer_deg * Math.PI / 180.0;
+    this.servo_slew = 460.0 * Math.PI / 180.0;
+    this.anti_squat = p.anti_squat_pct / 100.0;
+    this.anti_dive = p.anti_dive_pct / 100.0;
+
+    this.mu0_f = 0.93;
+    this.mu0_r = 0.96 * Math.min(1.08, Math.pow(p.tyre_width_rear / 30.0, 0.18));
+    this.fz_nom = (this.m * this.g) / 4.0;
+
+    this.has_aero = p.has_aero_kit;
+    this.rho_air = 1.225;
+    this.area = p.frontal_area_m2;
+    this.cd = this.has_aero ? p.cd : 0.42;
+    this.clf = this.has_aero ? p.cl_front : -0.04;
+    this.clr = this.has_aero ? p.cl_rear : -0.06;
+  }
+
+  createState(x = 0, y = 0, yaw = 0, u = 0) {
+    return {
+      x, y, z: this.h_cg,
+      roll: 0, pitch: 0, yaw,
+      u, v: 0, w: 0,
+      p: 0, q: 0, r: 0,
+      sus_z: [0, 0, 0, 0],
+      sus_vz: [0, 0, 0, 0],
+      wheel_omega: [u / this.rf, u / this.rf, u / this.rr, u / this.rr],
+      wheel_angle: [0, 0, 0, 0],
+      delta_fl: 0, delta_fr: 0,
+      chassis_twist: 0,
+      steer_actual: 0,
+      motor_amps: 0,
+      bus_volts: 11.8,
+      ax_g: 0,
+      ay_g: 0,
+    };
+  }
+
+  _pacejkaCombined(fz, kappa, alpha, camber, mu0, isRear) {
+    if (fz <= 0.1) return [0.0, 0.0];
+    let mu = mu0 * Math.pow(fz / this.fz_nom, -0.11);
+    mu = Math.max(0.55, Math.min(1.25, mu));
+
+    const Bx = 14.0, Cx = 1.55, Ex = 0.35;
+    const kx = Math.max(-1.5, Math.min(1.5, kappa));
+    const fx0 = mu * fz * Math.sin(Cx * Math.atan(Bx * kx - Ex * (Bx * kx - Math.atan(Bx * kx))));
+
+    const By = isRear ? 12.8 : 11.5;
+    const Cy = 1.42, Ey = 0.20;
+    const alpha_eff = alpha - 0.08 * camber;
+    const ay = Math.max(-1.2, Math.min(1.2, alpha_eff));
+    const fy0 = -mu * fz * Math.sin(Cy * Math.atan(By * ay - Ey * (By * ay - Math.atan(By * ay))));
+
+    const s_tot = Math.hypot(kappa / 0.14, alpha / 0.16);
+    let fx = fx0, fy = fy0;
+    if (s_tot > 1e-6) {
+      const w_x = Math.abs(kappa / 0.14) / s_tot;
+      const w_y = Math.abs(alpha / 0.16) / s_tot;
+      const f_max = mu * fz;
+      const f_mag = Math.hypot(fx0, fy0);
+      if (f_mag > f_max) {
+        const scale = f_max / f_mag;
+        fx = fx0 * scale;
+        fy = fy0 * scale;
+      } else {
+        fx = Math.abs(alpha) > 0.08 ? fx0 * (0.35 + 0.65 * w_x) : fx0;
+        fy = Math.abs(kappa) > 0.12 ? fy0 * (0.35 + 0.65 * w_y) : fy0;
+        if (Math.abs(kappa) < 0.03) fy = fy0;
+        if (Math.abs(alpha) < 0.03) fx = fx0;
+      }
+    }
+    return [fx, fy];
+  }
+
+  step(st, throttle, steerCmd, dt, bumpFn = null, gyroGain = 0.25, handbrake = false) {
+    const nSub = 8;
+    const h = dt / nSub;
+    throttle = Math.max(-1.0, Math.min(1.0, throttle));
+    steerCmd = Math.max(-1.0, Math.min(1.0, steerCmd));
+
+    for (let s = 0; s < nSub; s++) {
+      let targetSteer = steerCmd * this.max_steer;
+      if (gyroGain > 0.0 && st.u > 2.0) {
+        const beta = Math.atan2(st.v, Math.abs(st.u));
+        const r_neutral = (st.u / this.L) * Math.tan(targetSteer) * 0.85;
+        const yaw_excess = st.r - r_neutral;
+        targetSteer -= gyroGain * (0.35 * yaw_excess - 1.4 * beta);
+        targetSteer = Math.max(-this.max_steer, Math.min(this.max_steer, targetSteer));
+      }
+      const dSteer = Math.max(-this.servo_slew * h, Math.min(this.servo_slew * h, targetSteer - st.steer_actual));
+      st.steer_actual += dSteer;
+
+      let delta_fl = 0.0, delta_fr = 0.0;
+      if (Math.abs(st.steer_actual) > 1e-4) {
+        const R_turn = this.L / Math.tan(Math.abs(st.steer_actual));
+        const d_in = Math.atan2(this.L, Math.max(0.08, R_turn - 0.5 * this.tf));
+        const d_out = Math.atan2(this.L, R_turn + 0.5 * this.tf);
+        const d_in_b = Math.abs(st.steer_actual) + this.ackermann * (d_in - Math.abs(st.steer_actual));
+        const d_out_b = Math.abs(st.steer_actual) + this.ackermann * (d_out - Math.abs(st.steer_actual));
+        if (st.steer_actual > 0) {
+          delta_fl = d_in_b; delta_fr = d_out_b;
+        } else {
+          delta_fl = -d_out_b; delta_fr = -d_in_b;
+        }
+      }
+      st.delta_fl = delta_fl;
+      st.delta_fr = delta_fr;
+      const delta_w = [delta_fl + this.toe_f, delta_fr - this.toe_f, this.toe_r, -this.toe_r];
+
+      const cx = [this.a, this.a, -this.b, -this.b];
+      const cy = [0.5 * this.tf, -0.5 * this.tf, 0.5 * this.tr, -0.5 * this.tr];
+      const static_fz = [
+        0.5 * this.m * this.g * (this.b / this.L),
+        0.5 * this.m * this.g * (this.b / this.L),
+        0.5 * this.m * this.g * (this.a / this.L),
+        0.5 * this.m * this.g * (this.a / this.L),
+      ];
+
+      const v_sq = st.u * st.u + st.v * st.v;
+      const q_dyn = 0.5 * this.rho_air * this.area * v_sq;
+      const f_aero_drag = q_dyn * this.cd * (st.u >= 0 ? 1.0 : -1.0);
+      const df_front = Math.max(0.0, q_dyn * this.clf);
+      const df_rear = Math.max(0.0, q_dyn * this.clr);
+
+      const phi_f = st.roll + 0.5 * st.chassis_twist;
+      const phi_r = st.roll - 0.5 * st.chassis_twist;
+
+      const fz = [0, 0, 0, 0];
+      let f_sus_total_z = 0.0, roll_torque = 0.0, pitch_torque = 0.0;
+      const cyaw = Math.cos(st.yaw), syaw = Math.sin(st.yaw);
+
+      for (let i = 0; i < 4; i++) {
+        const isRear = i >= 2;
+        const kw = isRear ? this.kw_r : this.kw_f;
+        const cw = isRear ? this.cw_r : this.cw_f;
+        const phi_ax = isRear ? phi_r : phi_f;
+        let road_z = 0.0;
+        if (bumpFn) {
+          const wx = st.x + cx[i] * cyaw - cy[i] * syaw;
+          const wy = st.y + cx[i] * syaw + cy[i] * cyaw;
+          road_z = bumpFn(wx, wy);
+        }
+        const z_disp = -(st.z - this.h_cg) - cy[i] * phi_ax + cx[i] * st.pitch + road_z;
+        const vz_c = -st.w - cy[i] * st.p + cx[i] * st.q;
+        st.sus_z[i] = z_disp;
+        st.sus_vz[i] = vz_c;
+
+        let f_spr = kw * z_disp + cw * vz_c;
+        if (z_disp > this.max_bump) f_spr += this.bump_stop_k * (z_disp - this.max_bump);
+        else if (z_disp < this.max_droop) f_spr += this.bump_stop_k * (z_disp - this.max_droop);
+
+        const aero_corner = 0.5 * (isRear ? df_rear : df_front);
+        const fz_i = Math.max(0.0, static_fz[i] + f_spr + aero_corner);
+        fz[i] = fz_i;
+
+        const dfz_i = fz_i - static_fz[i];
+        f_sus_total_z += f_spr;
+        roll_torque += cy[i] * dfz_i;
+        pitch_torque += -cx[i] * dfz_i;
+      }
+
+      const omega_diff = 0.5 * (st.wheel_omega[2] + st.wheel_omega[3]);
+      const omega_motor = omega_diff * this.G;
+      const v_bemf = omega_motor * this.ke;
+
+      let i_mot = 0.0, tau_mot = 0.0;
+      if (throttle >= 0.0) {
+        const v_cmd = throttle * this.v_oc;
+        const r_eff = this.rm + this.r_bat * (throttle * throttle);
+        const i_raw = (v_cmd - v_bemf) / r_eff;
+        i_mot = Math.max(0.0, Math.min(this.i_max, i_raw));
+        st.bus_volts = this.v_oc - i_mot * this.r_bat;
+        tau_mot = this.kt * i_mot;
+      } else {
+        const brake_frac = Math.abs(throttle);
+        if (st.u > 0.3) {
+          i_mot = -Math.min(this.i_max * 0.85, brake_frac * 55.0);
+          tau_mot = -brake_frac * 0.48 * (omega_motor >= 0 ? 1.0 : -1.0);
+        } else {
+          const v_cmd = throttle * this.v_oc * 0.55;
+          const i_raw = (v_cmd - v_bemf) / (this.rm + this.r_bat);
+          i_mot = Math.max(-this.i_max * 0.6, Math.min(0.0, i_raw));
+          tau_mot = this.kt * i_mot;
+        }
+        st.bus_volts = this.v_oc - Math.abs(i_mot) * this.r_bat;
+      }
+      st.motor_amps = Math.abs(i_mot);
+      const tau_axle = tau_mot * this.G * this.eta_drive;
+      const diff_bias = 0.08 * (st.wheel_omega[3] - st.wheel_omega[2]);
+      const tau_wheel = [0.0, 0.0, 0.5 * tau_axle + diff_bias, 0.5 * tau_axle - diff_bias];
+
+      let Fx_body = -f_aero_drag, Fy_body = 0.0, Mz_body = 0.0;
+
+      for (let i = 0; i < 4; i++) {
+        const isRear = i >= 2;
+        const rw = isRear ? this.rr : this.rf;
+        const Iw = isRear ? this.Iwr : this.Iwf;
+        const mu0 = isRear ? this.mu0_r : this.mu0_f;
+        const camber = isRear ? this.camber_r : this.camber_f;
+
+        const vx_h = st.u - st.r * cy[i];
+        const vy_h = st.v + st.r * cx[i];
+        const cd_w = Math.cos(delta_w[i]);
+        const sd_w = Math.sin(delta_w[i]);
+        const vx_w = vx_h * cd_w + vy_h * sd_w;
+        const vy_w = -vx_h * sd_w + vy_h * cd_w;
+
+        const v_ref = Math.max(0.8, Math.abs(vx_w));
+        const kappa = (st.wheel_omega[i] * rw - vx_w) / v_ref;
+        const alpha = Math.atan2(vy_w, Math.max(0.6, Math.abs(vx_w)));
+
+        const [fx_w, fy_w] = this._pacejkaCombined(fz[i], kappa, alpha, camber * (i % 2 === 0 ? 1.0 : -1.0), mu0, isRear);
+        const f_roll = 0.022 * fz[i] * (vx_w > 0.05 ? 1.0 : (vx_w < -0.05 ? -1.0 : 0.0));
+
+        if (handbrake && isRear) {
+          st.wheel_omega[i] *= 0.6;
+        } else {
+          const d_fx_dk = (14.0 * 1.55 * mu0 * fz[i]) / (1.0 + Math.pow(5.0 * kappa, 2));
+          const d_tau_dw = (rw * rw / v_ref) * d_fx_dk;
+          const tau_net = tau_wheel[i] - fx_w * rw - f_roll * rw;
+          st.wheel_omega[i] += (tau_net * h) / (Iw + h * d_tau_dw);
+          if (Math.abs(vx_w) < 0.1 && Math.abs(throttle) < 0.05) {
+            st.wheel_omega[i] *= 0.85;
+          }
+        }
+        st.wheel_angle[i] += st.wheel_omega[i] * h;
+
+        const fx_b = fx_w * cd_w - fy_w * sd_w - f_roll * cd_w;
+        const fy_b = fx_w * sd_w + fy_w * cd_w;
+
+        Fx_body += fx_b;
+        Fy_body += fy_b;
+        Mz_body += cx[i] * fy_b - cy[i] * fx_b;
+      }
+
+      const ax = Fx_body / this.m;
+      const ay = Fy_body / this.m;
+      st.ax_g = ax / this.g;
+      st.ay_g = ay / this.g;
+
+      st.u += (ax + st.r * st.v) * h;
+      st.v += (ay - st.r * st.u) * h;
+      st.r += (Mz_body / this.Izz) * h;
+
+      const rc_avg = 0.5 * (this.rc_f + this.rc_r);
+      const m_roll_in = this.ms * ay * Math.max(0.005, this.h_cg - rc_avg);
+      const anti = ax >= 0 ? this.anti_squat : this.anti_dive;
+      const m_pitch_in = -this.ms * ax * this.h_cg * (1.0 - anti);
+
+      st.w += (f_sus_total_z / this.ms) * h;
+      st.z += st.w * h;
+      st.p += ((m_roll_in + roll_torque) / this.Ixx) * h;
+      st.roll += st.p * h;
+      st.q += ((m_pitch_in + pitch_torque) / this.Iyy) * h;
+      st.pitch += st.q * h;
+
+      const m_rf = -0.5 * this.tf * (fz[0] - fz[1]);
+      const m_rr = -0.5 * this.tr * (fz[2] - fz[3]);
+      st.chassis_twist = 0.5 * (m_rf - m_rr) / Math.max(100.0, this.k_torsion_nm_rad);
+
+      st.x += (st.u * cyaw - st.v * syaw) * h;
+      st.y += (st.u * syaw + st.v * cyaw) * h;
+      st.yaw += st.r * h;
+    }
+    return st;
+  }
+}
+
+const sim = new RCPhysicsSim(PARAMS, CAD_METRICS, FEA_METRICS);
+let carState = sim.createState(0, 0, 0, 0);
+
+// === TRACK ROAD BUMP FUNCTION (15mm Speed Bump on straightaway X=18..18.2m, Y=-2..2m) ===
+function roadBumpZ(wx, wy) {
+  if (wx >= 18.0 && wx <= 18.20 && Math.abs(wy) <= 2.2) {
+    return 0.015 * Math.sin(Math.PI * (wx - 18.0) / 0.20);
+  }
+  return 0.0;
+}
+
+// === THREE.JS 3D SCENE & HIGH-FIDELITY SUPERCAR + CHASSIS GEOMETRY ===
+const wrap = document.getElementById('canvas-wrap');
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+wrap.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d131d);
+scene.fog = new THREE.FogExp2(0x0d131d, 0.0085);
+
+const camera = new THREE.PerspectiveCamera(54, window.innerWidth / window.innerHeight, 0.04, 240);
+
+// Lights
+scene.add(new THREE.HemisphereLight(0xdbeafe, 0x1e293b, 0.85));
+const sun = new THREE.DirectionalLight(0xfff7ed, 1.8);
+sun.position.set(16, 28, -14);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 2; sun.shadow.camera.far = 90;
+sun.shadow.camera.left = -35; sun.shadow.camera.right = 35;
+sun.shadow.camera.top = 35; sun.shadow.camera.bottom = -35;
+scene.add(sun);
+scene.add(sun.target);
+
+// Asphalt ground texture (procedural grid + subtle aggregate grain)
+const texCan = document.createElement('canvas');
+texCan.width = 512; texCan.height = 512;
+const tctx = texCan.getContext('2d');
+tctx.fillStyle = '#1b2029';
+tctx.fillRect(0, 0, 512, 512);
+for (let i = 0; i < 6000; i++) {
+  const v = 22 + Math.floor(Math.random() * 20);
+  tctx.fillStyle = `rgb(${v},${v+3},${v+8})`;
+  tctx.fillRect(Math.random()*512, Math.random()*512, 2, 2);
+}
+tctx.strokeStyle = 'rgba(255,255,255,0.06)';
+tctx.lineWidth = 2;
+tctx.strokeRect(0, 0, 512, 512);
+const roadTex = new THREE.CanvasTexture(texCan);
+roadTex.wrapS = THREE.RepeatWrapping; roadTex.wrapT = THREE.RepeatWrapping;
+roadTex.repeat.set(60, 60);
+
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(180, 180),
+  new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.85, metalness: 0.05 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Note on Three.js Coordinate Mapping:
+// Physics: +X forward, +Y left, +Z up
+// Three.js: +X = Physics X, +Y = Physics Z (up), +Z = -Physics Y (right)
+function physToThree(px, py, pz = 0) {
+  return new THREE.Vector3(px, pz, -py);
+}
+
+// Track Markers:
+// 1. 0-30m Drag Strip + Gates (X = 0..35m, Y = 0)
+const dragLine = new THREE.Mesh(
+  new THREE.PlaneGeometry(36, 2.4),
+  new THREE.MeshStandardMaterial({ color: 0x262c38, roughness: 0.8 })
+);
+dragLine.rotation.x = -Math.PI / 2;
+dragLine.position.set(17, 0.004, 0);
+dragLine.receiveShadow = true;
+scene.add(dragLine);
+
+function makeGate(xPos, color) {
+  const g = new THREE.Group();
+  const postGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.9, 12);
+  const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35 });
+  const p1 = new THREE.Mesh(postGeo, mat); p1.position.set(xPos, 0.45, -1.25);
+  const p2 = new THREE.Mesh(postGeo, mat); p2.position.set(xPos, 0.45, 1.25);
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 2.6), mat); bar.position.set(xPos, 0.9, 0);
+  const strip = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 2.4), new THREE.MeshBasicMaterial({ color }));
+  strip.rotation.x = -Math.PI / 2; strip.position.set(xPos, 0.006, 0);
+  g.add(p1, p2, bar, strip);
+  scene.add(g);
+}
+makeGate(0, 0x34d399);
+makeGate(30, 0xff5a1f);
+
+// 2. 15mm Speed Bump across straight at X=18m
+const bumpMesh = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.08, 0.08, 4.4, 16, 1, false, 0, Math.PI),
+  new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.5 })
+);
+bumpMesh.rotation.z = Math.PI / 2;
+bumpMesh.rotation.y = Math.PI / 2;
+bumpMesh.scale.set(1, 0.19, 1.25);
+bumpMesh.position.set(18.1, 0.0, 0);
+scene.add(bumpMesh);
+
+// 3. 15m Radius Skidpad Circle centered at (X = 0, Y = -22m -> Three Z = +22m)
+const skidCenter = physToThree(0, -22, 0.008);
+const skidRing = new THREE.Mesh(
+  new THREE.RingGeometry(14.85, 15.15, 96),
+  new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide })
+);
+skidRing.rotation.x = -Math.PI / 2;
+skidRing.position.copy(skidCenter);
+scene.add(skidRing);
+const skidCenterDot = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.18, 0.18, 0.6, 16),
+  new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x0284c7, emissiveIntensity: 0.4 })
+);
+skidCenterDot.position.set(skidCenter.x, 0.3, skidCenter.z);
+scene.add(skidCenterDot);
+
+// 4. Slalom Cones & Circuit Perimeter Curbs
+const coneGeo = new THREE.ConeGeometry(0.11, 0.28, 12);
+const coneMat = new THREE.MeshStandardMaterial({ color: 0xff5a1f, emissive: 0x9a3412, emissiveIntensity: 0.25 });
+for (let i = 0; i < 7; i++) {
+  const cx = 6 + i * 3.8;
+  const cy = (i % 2 === 0 ? 5.5 : 8.5);
+  const cone = new THREE.Mesh(coneGeo, coneMat);
+  cone.position.copy(physToThree(cx, cy, 0.14));
+  cone.castShadow = true;
+  scene.add(cone);
+}
+// Oval circuit curbs
+for (let a = 0; a < 48; a++) {
+  const th = (a / 48) * Math.PI * 2;
+  const px = 14 + 30 * Math.cos(th);
+  const py = 14 + 20 * Math.sin(th);
+  const curb = new THREE.Mesh(
+    new THREE.BoxGeometry(0.45, 0.08, 0.45),
+    new THREE.MeshStandardMaterial({ color: a % 2 === 0 ? 0xef4444 : 0xf8fafc })
+  );
+  curb.position.copy(physToThree(px, py, 0.04));
+  curb.rotation.y = th;
+  scene.add(curb);
+}
+
+// === BUILD THE 3D CAR MODEL MATCHING EXACT CAD PROPORTIONS ===
+const carRoot = new THREE.Group();
+scene.add(carRoot);
+
+const bodyGroup = new THREE.Group(); // Sprung body (heaves, pitches, rolls around CG)
+carRoot.add(bodyGroup);
+
+// Shift meshes so CG sits at local (0,0,0) of bodyGroup, or rear axle at x = -sim.b
+const xRear = -sim.b;
+const xFront = sim.a;
+const chassisShift = new THREE.Group();
+chassisShift.position.set(xRear, -sim.h_cg, 0); // Now X=0 in chassisShift is rear axle, Y=0 is ground!
+bodyGroup.add(chassisShift);
+
+// Chassis Tub & Upper Torsion Spine (visible in X-Ray mode)
+const matCarbon = new THREE.MeshStandardMaterial({ color: 0x1e2430, roughness: 0.42, metalness: 0.2 });
+const matMotor = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.25, metalness: 0.85 });
+const matBattery = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.5 });
+const matOrange = new THREE.MeshPhysicalMaterial({
+  color: 0xff4d12, metalness: 0.35, roughness: 0.22, clearcoat: 0.9, clearcoatRoughness: 0.1,
+  transparent: true, opacity: 1.0
+});
+const matGlass = new THREE.MeshPhysicalMaterial({
+  color: 0x0b1220, metalness: 0.1, roughness: 0.08, clearcoat: 1.0, transparent: true, opacity: 0.88
+});
+
+const tubMesh = new THREE.Mesh(new THREE.BoxGeometry(0.29, 0.024, 0.116), matCarbon);
+tubMesh.position.set(0.13, 0.026, 0);
+chassisShift.add(tubMesh);
+
+const spineMesh = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.016, 0.044), matCarbon);
+spineMesh.position.set(0.13, 0.052, 0);
+chassisShift.add(spineMesh);
+
+const motMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.050, 20), matMotor);
+motMesh.rotation.x = Math.PI / 2;
+motMesh.position.set(PARAMS.motor_x * 1e-3, PARAMS.motor_z * 1e-3, -PARAMS.motor_y * 1e-3);
+chassisShift.add(motMesh);
+
+const batMesh = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.0265, 0.034), matBattery);
+batMesh.position.set(PARAMS.battery_x * 1e-3, PARAMS.battery_z * 1e-3, -PARAMS.battery_y * 1e-3);
+chassisShift.add(batMesh);
+
+// Sculpted Supercar Body Shell (Papaya Orange extruded profile + fenders + canopy + swan-neck wing)
+const sideShape = new THREE.Shape();
+sideShape.moveTo(-0.076, 0.020);
+sideShape.lineTo(0.330, 0.016); // flat aero skirt
+sideShape.lineTo(0.330, 0.036); // wedge nose tip
+sideShape.quadraticCurveTo(0.285, 0.064, 0.215, 0.074); // hood slope
+sideShape.quadraticCurveTo(0.160, 0.114, 0.115, 0.117); // windshield & cabin peak
+sideShape.quadraticCurveTo(0.045, 0.104, -0.025, 0.078); // flying buttress fastback
+sideShape.lineTo(-0.076, 0.062); // rear deck
+sideShape.closePath();
+
+const bodyGeo = new THREE.ExtrudeGeometry(sideShape, { depth: 0.206, bevelEnabled: true, bevelThickness: 0.008, bevelSize: 0.007, bevelSegments: 3 });
+bodyGeo.translate(0, 0, -0.103);
+const bodyShell = new THREE.Mesh(bodyGeo, matOrange);
+bodyShell.castShadow = true;
+chassisShift.add(bodyShell);
+
+// Canopy glass insert
+const canopy = new THREE.Mesh(new THREE.BoxGeometry(0.115, 0.034, 0.116), matGlass);
+canopy.position.set(0.115, 0.098, 0);
+chassisShift.add(canopy);
+
+// Front TPU Splitter & Rear Diffuser
+const splitter = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.008, 0.190), matCarbon);
+splitter.position.set(0.315, 0.014, 0);
+chassisShift.add(splitter);
+
+const diffuser = new THREE.Mesh(new THREE.BoxGeometry(0.040, 0.012, 0.130), matCarbon);
+diffuser.position.set(-0.065, 0.016, 0);
+chassisShift.add(diffuser);
+
+// Swan-neck Rear Wing
+const wingBlade = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.006, 0.215), matCarbon);
+wingBlade.position.set(-0.062, 0.110, 0);
+wingBlade.rotation.z = -0.10;
+wingBlade.castShadow = true;
+chassisShift.add(wingBlade);
+for (const sgn of [-1, 1]) {
+  const endplate = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.022, 0.003), matCarbon);
+  endplate.position.set(-0.062, 0.109, sgn * 0.108);
+  const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.042, 0.004), matCarbon);
+  pylon.position.set(-0.046, 0.092, sgn * 0.032);
+  pylon.rotation.z = 0.35;
+  chassisShift.add(endplate, pylon);
+}
+
+// Headlights & Taillights
+const hlMat = new THREE.MeshBasicMaterial({ color: 0xe0f2fe });
+const tlMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+for (const sgn of [-1, 1]) {
+  const hl = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.008, 0.028), hlMat);
+  hl.position.set(0.312, 0.042, sgn * 0.065);
+  const tl = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.007, 0.036), tlMat);
+  tl.position.set(-0.077, 0.054, sgn * 0.058);
+  chassisShift.add(hl, tl);
+}
+
+// 4 Independent Wheel & Wishbone Corner Assemblies
+const matTyre = new THREE.MeshStandardMaterial({ color: 0x111317, roughness: 0.88 });
+const matRim = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.28, metalness: 0.8 });
+const wheelMeshes = [];
+const armMeshes = [];
+
+const cornersLocal = [
+  { x: sim.a,  y:  0.5 * sim.tf, r: sim.rf, w: CAD_METRICS.tyre_width_front_m },
+  { x: sim.a,  y: -0.5 * sim.tf, r: sim.rf, w: CAD_METRICS.tyre_width_front_m },
+  { x: -sim.b, y:  0.5 * sim.tr, r: sim.rr, w: CAD_METRICS.tyre_width_rear_m },
+  { x: -sim.b, y: -0.5 * sim.tr, r: sim.rr, w: CAD_METRICS.tyre_width_rear_m },
+];
+
+for (let i = 0; i < 4; i++) {
+  const c = cornersLocal[i];
+  const steerPivot = new THREE.Group();
+  steerPivot.position.set(c.x, c.r, -c.y);
+  carRoot.add(steerPivot);
+
+  const spinGroup = new THREE.Group();
+  steerPivot.add(spinGroup);
+
+  const tyre = new THREE.Mesh(new THREE.CylinderGeometry(c.r, c.r, c.w, 28), matTyre);
+  tyre.rotation.x = Math.PI / 2;
+  tyre.castShadow = true;
+  spinGroup.add(tyre);
+
+  const rim = new THREE.Mesh(new THREE.CylinderGeometry(PARAMS.rim_od * 0.5e-3, PARAMS.rim_od * 0.5e-3, c.w + 0.002, 20), matRim);
+  rim.rotation.x = Math.PI / 2;
+  spinGroup.add(rim);
+
+  // 5 visible twin spokes on rim face so wheel spin is unmistakably visible
+  const spokeBar = new THREE.Mesh(new THREE.BoxGeometry(PARAMS.rim_od * 0.85e-3, 0.004, c.w + 0.004), matCarbon);
+  const spokeBar2 = spokeBar.clone(); spokeBar2.rotation.z = Math.PI / 3;
+  const spokeBar3 = spokeBar.clone(); spokeBar3.rotation.z = -Math.PI / 3;
+  spinGroup.add(spokeBar, spokeBar2, spokeBar3);
+
+  // Wishbone A-arm link visual
+  const sgn = c.y > 0 ? 1 : -1;
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.007, Math.abs(c.y) - 0.024), matCarbon);
+  arm.position.set(c.x, 0.025, -sgn * (0.024 + 0.5 * (Math.abs(c.y) - 0.024)));
+  carRoot.add(arm);
+
+  wheelMeshes.push({ steerPivot, spinGroup, baseZ: c.r });
+  armMeshes.push(arm);
+}
+
+// === INPUT HANDLING (KEYBOARD + WEB GAMEPAD API) ===
+const keys = {};
+window.addEventListener('keydown', (e) => {
+  keys[e.code] = true;
+  if (e.code === 'KeyX') toggleXray();
+  if (e.code === 'KeyV') cycleCamera();
+  if (e.code === 'KeyR') resetCar();
+});
+window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+let xrayOn = false;
+function toggleXray() {
+  xrayOn = !xrayOn;
+  matOrange.opacity = xrayOn ? 0.24 : 1.0;
+  matGlass.opacity = xrayOn ? 0.18 : 0.88;
+  document.getElementById('btn-xray').classList.toggle('active', xrayOn);
+}
+
+let camMode = 0; // 0=Chase, 1=Hood/Bumper, 2=Orbit
+function cycleCamera() {
+  camMode = (camMode + 1) % 3;
+  const names = ['Chase Cam', 'Hood Cam', 'Trackside Orbit'];
+  showBanner('Camera: ' + names[camMode]);
+}
+
+let gyroGain = 0.25;
+document.getElementById('gyro-slider').addEventListener('input', (e) => {
+  gyroGain = Number(e.target.value) / 100.0;
+  document.getElementById('gyro-lbl').textContent = e.target.value + '%';
+});
+
+function showBanner(txt) {
+  const el = document.getElementById('banner-msg');
+  el.textContent = txt;
+  el.style.display = 'block';
+  clearTimeout(window._banT);
+  window._banT = setTimeout(() => { el.style.display = 'none'; }, 2400);
+}
+
+// === SCENARIOS & TELEMETRY BENCHMARKS ===
+let scenario = 'circuit';
+let dragActive = false, dragTime = 0, bestT30 = null, bestVmax = 0, bestLatG = 0;
+
+function resetCar(x = 0, y = 0, yaw = 0) {
+  carState = sim.createState(x, y, yaw, 0);
+  dragActive = (scenario === 'drag');
+  dragTime = 0;
+  bestLatG = 0;
+}
+
+function setScenario(mode) {
+  scenario = mode;
+  document.getElementById('btn-drag').classList.toggle('active', mode === 'drag');
+  document.getElementById('btn-skid').classList.toggle('active', mode === 'skidpad');
+  document.getElementById('btn-circuit').classList.toggle('active', mode === 'circuit');
+  if (mode === 'drag') {
+    resetCar(-0.5, 0, 0);
+    showBanner('0–30m Drag Strip: Hold W/Up to launch through orange 30m gate!');
+  } else if (mode === 'skidpad') {
+    resetCar(0, -7.0, 0);
+    showBanner('15m Skidpad: Accelerate smoothly around the cyan circle!');
+  } else {
+    resetCar(0, 0, 0);
+    showBanner('Handling Track: Test 0-30m straight, 15mm speed bump (X=18m), and slalom cones!');
+  }
+}
+
+let steerSmooth = 0, thrSmooth = 0;
+function sampleInputs(dt) {
+  let thr = 0, steer = 0, handbrake = !!keys['Space'];
+  if (keys['KeyW'] || keys['ArrowUp']) thr += 1.0;
+  if (keys['KeyS'] || keys['ArrowDown']) thr -= 1.0;
+  if (keys['KeyA'] || keys['ArrowLeft']) steer += 1.0;
+  if (keys['KeyD'] || keys['ArrowRight']) steer -= 1.0;
+
+  // Gamepad API polling
+  const gps = navigator.getGamepads ? navigator.getGamepads() : [];
+  let gpConnected = false;
+  for (const gp of gps) {
+    if (!gp) continue;
+    gpConnected = true;
+    const ax0 = Math.abs(gp.axes[0]) > 0.08 ? -gp.axes[0] : 0;
+    const rt = gp.buttons[7] ? gp.buttons[7].value : 0;
+    const lt = gp.buttons[6] ? gp.buttons[6].value : 0;
+    if (Math.abs(ax0) > 0.01) steer = ax0;
+    if (rt > 0.05 || lt > 0.05) thr = rt - lt;
+    else if (gp.axes.length > 1 && Math.abs(gp.axes[1]) > 0.1) thr = -gp.axes[1];
+    if (gp.buttons[0] && gp.buttons[0].pressed) handbrake = true;
+    document.getElementById('gp-status').textContent = `Gamepad: ${gp.id.slice(0, 32)} (Active)`;
+    break;
+  }
+  if (!gpConnected) {
+    document.getElementById('gp-status').textContent = 'Gamepad: Not connected (Keyboard active)';
+  }
+
+  // Natural keyboard ramp so digital taps feel crisp yet controllable
+  const steerRate = 6.5;
+  steerSmooth += Math.max(-steerRate * dt, Math.min(steerRate * dt, steer - steerSmooth));
+  const thrRate = 8.0;
+  thrSmooth += Math.max(-thrRate * dt, Math.min(thrRate * dt, thr - thrSmooth));
+  return { thr: thrSmooth, steer: steerSmooth, handbrake };
+}
+
+// G-Meter canvas helper
+const gCtx = document.getElementById('g-canvas').getContext('2d');
+function drawGMeter(axG, ayG) {
+  gCtx.clearRect(0, 0, 76, 76);
+  gCtx.strokeStyle = 'rgba(255,255,255,0.18)';
+  gCtx.lineWidth = 1;
+  gCtx.beginPath(); gCtx.arc(38, 38, 28, 0, Math.PI * 2); gCtx.stroke();
+  gCtx.beginPath(); gCtx.moveTo(38, 4); gCtx.lineTo(38, 72); gCtx.moveTo(4, 38); gCtx.lineTo(72, 38); gCtx.stroke();
+  const gx = 38 - Math.max(-1.3, Math.min(1.3, ayG)) * 24;
+  const gy = 38 - Math.max(-1.3, Math.min(1.3, axG)) * 24;
+  gCtx.fillStyle = '#ff5a1f';
+  gCtx.beginPath(); gCtx.arc(gx, gy, 5.5, 0, Math.PI * 2); gCtx.fill();
+}
+
+// === EXPOSE HOOK FOR AUTOMATED BENCHMARK & PLAYWRIGHT VERIFICATION ===
+window.__RC_SIM__ = {
+  sim,
+  get state() { return carState; },
+  setScenario,
+  resetCar,
+  runBenchmark: () => {
+    const s = sim.createState(0, 0, 0, 0);
+    let t30 = null, vmax = 0;
+    const dt = 0.005;
+    for (let i = 0; i < 1400; i++) {
+      const t = i * dt;
+      const thr = t < 0.12 ? Math.min(1.0, t / 0.12) : 1.0;
+      sim.step(s, thr, 0.0, dt, null, 0.25, false);
+      vmax = Math.max(vmax, s.u);
+      if (t30 === null && s.x >= 30.0) t30 = t;
+    }
+    const sk = sim.createState(0, 0, 0, 8.0);
+    let bestG = 0;
+    for (let i = 0; i < 1600; i++) {
+      const t = i * dt;
+      const vt = 8.0 + 1.5 * t;
+      const thr = Math.max(-0.5, Math.min(1.0, 0.45 * (vt - sk.u)));
+      const r_des = sk.u / 15.0;
+      const sc = Math.max(-1.0, Math.min(1.0, 0.28 + 0.35 * (r_des - sk.r)));
+      sim.step(sk, thr, sc, dt, null, 0.25, false);
+      const bDeg = Math.abs(Math.atan2(sk.v, Math.max(1.0, sk.u)) * 180 / Math.PI);
+      if (bDeg > 28.0) break;
+      if (t > 1.0) bestG = Math.max(bestG, Math.abs(sk.ay_g));
+    }
+    return {
+      time_0_30m_s: Number((t30 ?? 9.99).toFixed(3)),
+      top_speed_kmh: Number((vmax * 3.6).toFixed(2)),
+      skidpad_max_lat_g: Number(bestG.toFixed(3)),
+    };
+  }
+};
+
+// === MAIN SIMULATION + RENDER LOOP ===
+let lastT = performance.now();
+function animate(now) {
+  requestAnimationFrame(animate);
+  const dt = Math.min(0.03, Math.max(0.001, (now - lastT) / 1000.0));
+  lastT = now;
+
+  const inp = sampleInputs(dt);
+  // Fixed 200Hz physics accumulation for exact determinism matching Python
+  const fixedDt = 0.005;
+  let acc = dt;
+  while (acc > 0.0001) {
+    const stepDt = Math.min(fixedDt, acc);
+    sim.step(carState, inp.thr, inp.steer, stepDt, roadBumpZ, gyroGain, inp.handbrake);
+    acc -= stepDt;
+
+    // Track 0-30m timer once passing X=0
+    if (carState.x >= 0.0 && carState.x < 30.0 && carState.u > 0.3) {
+      if (!dragActive) { dragActive = true; dragTime = 0; }
+      dragTime += stepDt;
+    } else if (dragActive && carState.x >= 30.0) {
+      dragActive = false;
+      bestT30 = dragTime;
+      showBanner(`30m Gate! Time: ${bestT30.toFixed(3)} s @ ${(carState.u * 3.6).toFixed(1)} km/h`);
+    }
+  }
+
+  // Update 3D Car Transforms
+  carRoot.position.set(carState.x, 0, -carState.y);
+  carRoot.rotation.set(0, carState.yaw, 0);
+
+  // Body sprung heave, pitch (+nose down -> -Z rotation in Three.js!), roll (+right down -> +X rotation in Three.js!)
+  bodyGroup.position.set(0, carState.z, 0);
+  bodyGroup.rotation.set(carState.roll, 0, -carState.pitch);
+
+  // Wheel steering & spin
+  const steerAngles = [carState.delta_fl, carState.delta_fr, 0, 0];
+  for (let i = 0; i < 4; i++) {
+    wheelMeshes[i].steerPivot.rotation.y = steerAngles[i];
+    wheelMeshes[i].spinGroup.rotation.z = -carState.wheel_angle[i];
+    const bumpOff = Math.max(-0.012, Math.min(0.015, carState.sus_z[i] * 0.45));
+    wheelMeshes[i].steerPivot.position.y = wheelMeshes[i].baseZ + bumpOff;
+  }
+
+  // Smooth Chase / Hood / Orbit Camera
+  const cy = Math.cos(carState.yaw), sy = Math.sin(carState.yaw);
+  const carPos = new THREE.Vector3(carState.x, carState.z, -carState.y);
+  if (camMode === 0) {
+    const targetCam = new THREE.Vector3(carState.x - 1.15 * cy, 0.42, -(carState.y - 1.15 * sy));
+    camera.position.lerp(targetCam, 1 - Math.exp(-9 * dt));
+    camera.lookAt(carState.x + 0.55 * cy, 0.08, -(carState.y + 0.55 * sy));
+  } else if (camMode === 1) {
+    camera.position.set(carState.x + 0.14 * cy, carState.z + 0.11, -(carState.y + 0.14 * sy));
+    camera.lookAt(carState.x + 1.5 * cy, 0.06, -(carState.y + 1.5 * sy));
+  } else {
+    const ang = now * 0.0005;
+    camera.position.set(carState.x + 1.2 * Math.cos(ang), 0.55, -carState.y + 1.2 * Math.sin(ang));
+    camera.lookAt(carPos);
+  }
+  sun.position.set(carState.x + 16, 28, -carState.y - 14);
+  sun.target.position.copy(carPos);
+
+  // Update HUD Telemetry
+  const kmh = carState.u * 3.6;
+  const mph = carState.u * 2.23694;
+  bestVmax = Math.max(bestVmax, kmh);
+  bestLatG = Math.max(bestLatG, Math.abs(carState.ay_g));
+  const betaDeg = Math.atan2(carState.v, Math.max(0.5, Math.abs(carState.u))) * 180 / Math.PI;
+
+  document.getElementById('val-speed').textContent = Math.abs(kmh).toFixed(0);
+  document.getElementById('val-mph').textContent = `${Math.abs(mph).toFixed(0)} mph`;
+  document.getElementById('val-steer').textContent = `Steer: ${(carState.steer_actual * 180 / Math.PI).toFixed(1)}°`;
+  document.getElementById('val-t30').textContent = bestT30 !== null ? `${bestT30.toFixed(2)} s` : (dragActive ? `${dragTime.toFixed(2)} s` : '--.- s');
+  document.getElementById('val-d30').textContent = `X: ${carState.x.toFixed(1)} m`;
+  document.getElementById('val-vmax').textContent = `${bestVmax.toFixed(1)} km/h`;
+  document.getElementById('val-vmax-mph').textContent = `${(bestVmax * 0.621371).toFixed(1)} mph`;
+  document.getElementById('val-latg').textContent = `${bestLatG.toFixed(2)} G`;
+  document.getElementById('val-slip').textContent = `Slip β: ${betaDeg.toFixed(1)}°`;
+  document.getElementById('val-amps').textContent = `${carState.motor_amps.toFixed(1)} A`;
+  document.getElementById('val-volts').textContent = `${carState.bus_volts.toFixed(2)} V`;
+  document.getElementById('val-ax').textContent = `${carState.ax_g.toFixed(2)} G`;
+  document.getElementById('val-ay').textContent = `${carState.ay_g.toFixed(2)} G`;
+  document.getElementById('val-roll').textContent = `${(carState.roll * 180 / Math.PI).toFixed(1)}°`;
+  document.getElementById('val-twist').textContent = `${(carState.chassis_twist * 180 / Math.PI).toFixed(2)}°`;
+  document.getElementById('val-thr-pct').textContent = `${(inp.thr * 100).toFixed(0)}%`;
+  document.getElementById('bar-thr').style.width = `${Math.abs(inp.thr) * 100}%`;
+
+  for (let i = 0; i < 4; i++) {
+    const pct = 50 + (carState.sus_z[i] / 0.015) * 45;
+    document.getElementById(`sus-${i}`).style.height = `${Math.max(5, Math.min(98, pct))}%`;
+  }
+  drawGMeter(carState.ay_g, carState.ax_g);
+
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
